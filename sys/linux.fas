@@ -4,6 +4,7 @@ const SYS_READ u64 = 0
 const SYS_CLOSE u64 = 3
 const SYS_MMAP u64 = 9
 const SYS_MUNMAP u64 = 11
+const SYS_FSTAT u64 = 5
 
 const EINTR i64 = 4
 const EIO i64 = 5
@@ -17,18 +18,9 @@ const PROT_WRITE i32 = 2
 const MAP_PRIVATE i32 = 2
 const MAP_ANONYMOUS i32 = 32
 
-
-fn write_fd(fd i32, p addr, n usize) i64 {
-    done usize = 0
-    while done < n {
-        r i64 = syscall(SYS_WRITE, fd, p + done, n - done)
-        if r == -EINTR { continue }
-        if r < 0 { return r }
-        if r == 0 { return -EIO }
-        done += bitcast[u64](r)
-    }
-    return bitcast[i64](done)
-}
+//
+// syscalls
+//
 
 fn sys_openat(dirfd i32, path addr, flags i32, mode i32) i64 {
     return syscall(SYS_OPENAT, dirfd, path, flags, mode)
@@ -42,6 +34,57 @@ fn sys_close(fd i32) i64 {
     return syscall(SYS_CLOSE, fd)
 }
 
+fn free(p addr, size usize) i64 {
+    return syscall(SYS_MUNMAP, p, size)
+}
+
+fn sys_fstat(fd i32, statbuf addr) i64 {
+    return syscall(SYS_FSTAT, fd, statbuf)
+}
+
+//
+// helpers
+//
+
+fn read_file(path addr, buffer addr, capacity usize) i64 {
+    if capacity == 0 { return -1 }
+
+    fd i64 = sys_openat(AT_FDCWD, path, O_RDONLY, 0)
+    if fd < 0 { return fd }
+
+    total usize = 0
+
+    while total < capacity - 1 {
+        bytes_read i64 = sys_read(trunc[i32](fd), buffer + total, capacity - total - 1)
+
+        if bytes_read == -EINTR { continue }
+        if bytes_read < 0 {
+            sys_close(trunc[i32](fd))
+            return bytes_read
+        }
+        if bytes_read == 0 { break }
+
+        total += bitcast[u64](bytes_read)
+    }
+
+    buffer[u8, total] = 0
+    sys_close(trunc[i32](fd))
+
+    return bitcast[i64](total)
+}
+
+fn write_fd(fd i32, p addr, n usize) i64 {
+    done usize = 0
+    while done < n {
+        r i64 = syscall(SYS_WRITE, fd, p + done, n - done)
+        if r == -EINTR { continue }
+        if r < 0 { return r }
+        if r == 0 { return -EIO }
+        done += bitcast[u64](r)
+    }
+    return bitcast[i64](done)
+}
+
 fn alloc(size usize) addr {
     if size == 0 { return null }
 
@@ -51,6 +94,11 @@ fn alloc(size usize) addr {
     return addr_from_bits(bitcast[usize](r))
 }
 
-fn free(p addr, size usize) i64 {
-    return syscall(SYS_MUNMAP, p, size)
+fn get_file_size(fd i32) i64 {
+    // stat struct -> https://github.com/torvalds/linux/blob/master/arch/x86/include/uapi/asm/stat.h
+    statbuf arr[144, u8] = {}
+    r i64 = sys_fstat(fd, &statbuf)
+    if r < 0 { return r }
+    // offset 48 is st_size
+    return (&statbuf + 48)[i64, 0]
 }
