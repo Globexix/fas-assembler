@@ -2,12 +2,20 @@ const SYS_WRITE u64 = 1
 const SYS_OPENAT u64 = 257
 const SYS_READ u64 = 0
 const SYS_CLOSE u64 = 3
+const SYS_MMAP u64 = 9
+const SYS_MUNMAP u64 = 11
 
 const EINTR i64 = 4
 const EIO i64 = 5
 
 const AT_FDCWD i32 = -100
 const O_RDONLY i32 = 0
+
+const PROT_READ i32 = 1
+const PROT_WRITE i32 = 2
+
+const MAP_PRIVATE i32 = 2
+const MAP_ANONYMOUS i32 = 32
 
 
 fn write_fd(fd i32, p addr, n usize) i64 {
@@ -32,4 +40,17 @@ fn sys_read(fd i32, buffer addr, count usize) i64 {
 
 fn sys_close(fd i32) i64 {
     return syscall(SYS_CLOSE, fd)
+}
+
+fn alloc(size usize) addr {
+    if size == 0 { return null }
+
+    r i64 = syscall(SYS_MMAP, 0, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+    if r < 0 { return null }
+
+    return addr_from_bits(bitcast[usize](r))
+}
+
+fn free(p addr, size usize) i64 {
+    return syscall(SYS_MUNMAP, p, size)
 }
