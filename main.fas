@@ -1,0 +1,7 @@
+use linux "sys/linux.fas"
+
+fn main(argc i32, argv addr) i32 {
+    write_fd(0, c"Hello world\n", len(c"Hello world\n"))
+
+    return 0
+}

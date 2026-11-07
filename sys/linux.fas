@@ -1,0 +1,17 @@
+const SYS_WRITE u64 = 1
+
+const EINTR i64 = 4
+const EIO i64 = 5
+
+
+fn write_fd(fd i32, p addr, n usize) i64 {
+    done usize = 0
+    while done < n {
+        r i64 = syscall(SYS_WRITE, fd, p + done, n - done)
+        if r == -EINTR { continue }
+        if r < 0 { return r }
+        if r == 0 { return -EIO }
+        done += bitcast[u64](r)
+    }
+    return bitcast[i64](done)
+}
