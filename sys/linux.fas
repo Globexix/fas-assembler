@@ -1,7 +1,13 @@
 const SYS_WRITE u64 = 1
+const SYS_OPENAT u64 = 257
+const SYS_READ u64 = 0
+const SYS_CLOSE u64 = 3
 
 const EINTR i64 = 4
 const EIO i64 = 5
+
+const AT_FDCWD i32 = -100
+const O_RDONLY i32 = 0
 
 
 fn write_fd(fd i32, p addr, n usize) i64 {
@@ -14,4 +20,16 @@ fn write_fd(fd i32, p addr, n usize) i64 {
         done += bitcast[u64](r)
     }
     return bitcast[i64](done)
+}
+
+fn sys_openat(dirfd i32, path addr, flags i32, mode i32) i64 {
+    return syscall(SYS_OPENAT, dirfd, path, flags, mode)
+}
+
+fn sys_read(fd i32, buffer addr, count usize) i64 {
+    return syscall(SYS_READ, fd, buffer, count)
+}
+
+fn sys_close(fd i32) i64 {
+    return syscall(SYS_CLOSE, fd)
 }
