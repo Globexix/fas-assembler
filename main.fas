@@ -1,8 +1,18 @@
 use linux "sys/linux.fas"
+use "C" <stdio.h>
 
 fn main(argc i32, argv addr) i32 {
+    if argc < 2 { return -1 }
 
     write_fd(1, c"Hello world\n", len(c"Hello world\n"))
+
+    //
+    // load source file from argv[1]
+    //
+
+    source_len i64 = read_file(argv[addr, 1])
+    if source_len < 0 { return -1 }
+    printf(c"%d\n", source_len)
 
     return 0
 }
