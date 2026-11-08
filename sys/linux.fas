@@ -46,20 +46,26 @@ fn sys_fstat(fd i32, statbuf addr) i64 {
 // helpers
 //
 
+struct File {
+    data addr
+    len usize
+    capacity usize
+}
+
 // TODO add proper error codes
-fn read_file(path addr) i64 {
+fn read_file(out addr, path addr) i64 {
 
     fd i32 = trunc[i32](sys_openat(AT_FDCWD, path, O_RDONLY, 0))
     if fd < 0 { return fd }
+    defer { sys_close(fd) }
 
     file_result i64 = get_file_size(fd)
-    if file_result < 0 { sys_close(fd); return -1 }
+    if file_result < 0 { return file_result }
     file_size usize = bitcast[usize](file_result)
 
     // file_size + 1 for empty files
     buffer addr = alloc(file_size + 1)
-    if buffer == null { sys_close(fd); return -1 }
-    defer { free(buffer, file_size + 1) }
+    if buffer == null { return -1 }
 
     total usize = 0
 
@@ -68,7 +74,7 @@ fn read_file(path addr) i64 {
 
         if bytes_read == -EINTR { continue }
         if bytes_read < 0 {
-            sys_close(fd)
+            free(buffer, file_size + 1)
             return bytes_read
         }
         if bytes_read == 0 { break }
@@ -77,9 +83,11 @@ fn read_file(path addr) i64 {
     }
 
     buffer[u8, total] = 0
-    sys_close(fd)
 
-    return bitcast[i64](total)
+    out[File].data = buffer
+    out[File].len = total
+    out[File].capacity = file_size + 1
+    return 0
 }
 
 fn write_fd(fd i32, p addr, n usize) i64 {
