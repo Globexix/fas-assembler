@@ -1,5 +1,4 @@
 use linux "sys/linux.fas"
-use "C" <stdio.h>
 
 // token kind
 // single characters like ";" are simply of its ascii value
@@ -35,7 +34,9 @@ fn main(argc i32, argv addr) i32 {
 
     if read_file(&file, argv[addr, 1]) < 0 { return -1 }
     defer { free(file.data, file.capacity) }
-    printf(c"file len: %zu\n", file.len)
+    write_str(1, c"file len: ")
+    write_u64(1, file.len)
+    write_str(1, c"\n")
 
     //
     // Lexer
@@ -58,7 +59,7 @@ fn main(argc i32, argv addr) i32 {
             while lexer.current < lexer.end {
                 c u8 = lexer.current[u8]
                 if c < '0' || c > '9' { break }
-                printf(c"%c", lexer.current[u8])
+                write_fd(1, lexer.current, 1)
                 lexer.current += 1
             }
 
