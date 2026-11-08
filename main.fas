@@ -1,6 +1,27 @@
 use linux "sys/linux.fas"
 use "C" <stdio.h>
 
+// token kind
+// single characters like ";" are simply of its ascii value
+const TOK_EOF u8 = 0
+const TOK_IDENT u8 = 128
+const TOK_NUMBER u8 = 129
+const TOK_STRING u8 = 130
+
+struct Token {
+    kind u8
+    start addr
+    len usize
+    line u32
+}
+
+struct Lexer {
+    current addr
+    end addr
+    line u32
+    column u32
+}
+
 fn main(argc i32, argv addr) i32 {
     if argc < 2 { return -1 }
 
@@ -15,6 +36,37 @@ fn main(argc i32, argv addr) i32 {
     if read_file(&file, argv[addr, 1]) < 0 { return -1 }
     defer { free(file.data, file.capacity) }
     printf(c"file len: %zu\n", file.len)
+
+    //
+    // Lexer
+    //
+    lexer Lexer = {}
+
+    lexer.current = file.data
+    lexer.end = file.data + file.len
+    lexer.line = 1
+
+    token Token = {}
+
+    while lexer.current < lexer.end {
+        ch u8 = lexer.current[u8]
+        // number
+        if ch >= '0' && ch <= '9' {
+            token.start = lexer.current
+            token.kind = TOK_NUMBER
+
+            while lexer.current < lexer.end {
+                c u8 = lexer.current[u8]
+                if c < '0' || c > '9' { break }
+                printf(c"%c", lexer.current[u8])
+                lexer.current += 1
+            }
+
+            token.len = addr_bits(lexer.current) - addr_bits(token.start)
+            continue
+        }
+        lexer.current += 1
+    }
 
     return 0
 }
