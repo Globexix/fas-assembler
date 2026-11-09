@@ -28,6 +28,7 @@ struct Assembler {
     token Token
     code addr
     code_len usize
+    intel_syntax bool
 }
 
 //
@@ -162,21 +163,35 @@ fn parse_no_op(asm addr, opcode u8) bool {
 }
 
 // mov $N, %rax
+// AT&T: mov $N, %rax
+// intel: mov rax, N
 fn parse_mov(asm addr) bool {
-    if !accept_char(asm, '$') { return false }
 
-    imm u32 = parse_number(asm)
-    if imm == BAD_NUMBER { return false }
+    imm u32 = BAD_NUMBER
+    if asm[Assembler].intel_syntax {
+        if !accept_word(asm, c"rax") || !accept_char(asm, ',') { return false }
+        imm = parse_number(asm)
+    } else {
+        if !accept_char(asm, '$') { return false }
+        imm = parse_number(asm)
+        if !accept_char(asm, ',') || !accept_char(asm, '%') || !accept_word(asm, c"rax") { return false }
+    }
 
-    if !accept_char(asm, ',') || !accept_char(asm, '%') || !accept_word(asm, c"rax") { return false }
-    if !at_statement_end(asm) { return false }
-
+    if imm == BAD_NUMBER || !at_statement_end(asm) { return false }
     emit_mov_rax(asm, imm)
 
     return true
 }
 
+fn parse_syntax(asm addr, argument addr, intel bool) bool {
+    if !accept_word(asm, argument) || !at_statement_end(asm) { return false }
+    asm[Assembler].intel_syntax = intel
+    return true
+}
+
 fn parse_intructions(asm addr, name addr, name_len usize) bool {
+    if text_eq(name, c".intel_syntax", name_len) { return parse_syntax(asm, c"noprefix", true) }
+    if text_eq(name, c".att_syntax", name_len) { return parse_syntax(asm, c"prefix", false) }
     if text_eq(name, c"mov", name_len) || text_eq(name, c"movq",name_len) { return parse_mov(asm) }
     if text_eq(name, c"nop", name_len) { return parse_no_op(asm, 0x90) }
     if text_eq(name, c"ret", name_len) { return parse_no_op(asm, 0xC3) }
