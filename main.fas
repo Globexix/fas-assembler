@@ -7,6 +7,8 @@ const TOK_IDENT u8 = 128
 const TOK_NUMBER u8 = 129
 const TOK_STRING u8 = 130
 
+const BAD_NUMBER u32 = 0xFFFFFFFF
+
 struct Token {
     kind u8
     start addr
@@ -104,12 +106,50 @@ fn at_statement_end(asm addr) bool {
     return kind == TOK_EOF || kind == '\n' || kind == ';'
 }
 
+fn accept_char(asm addr, ch u8) bool {
+    if asm[Assembler].token.kind != ch { return false }
+    next_token(&asm[Assembler].lexer, &asm[Assembler].token)
+    return true
+}
+
+fn accept_word(asm addr, word addr) bool {
+    view token = asm[Assembler].token
+
+    if token.kind != TOK_IDENT || !text_eq(token.start, word, token.len) { return false }
+    next_token(&asm[Assembler].lexer, &asm[Assembler].token)
+
+    return true
+}
+
+// only 0..2147483647
+fn parse_number(asm addr) u32 {
+     view token = asm[Assembler].token
+    if token.kind != TOK_NUMBER { return BAD_NUMBER }
+
+    value u64 = 0
+    for i usize = 0; i < token.len; i += 1 {
+        value = value * 10 + zext[u64](token.start[u8, i] - '0')
+        if value > 2147483647 { return BAD_NUMBER }
+    }
+
+    next_token(&asm[Assembler].lexer, &asm[Assembler].token)
+    return trunc[u32](value)
+}
+
 //
 // code emission
 //
 fn emit_byte(asm addr, byte u8) void {
     asm[Assembler].code[u8, asm[Assembler].code_len] = byte
     asm[Assembler].code_len += 1
+}
+
+fn emit_mov_rax(asm addr, imm u32) void {
+    emit_byte(asm, 0x48) // REX.W
+    emit_byte(asm, 0xC7) // mov r/m64, imm32
+    emit_byte(asm, 0xC0) // ModRM
+    (asm[Assembler].code + asm[Assembler].code_len)[u32] = imm // little endian
+    asm[Assembler].code_len += 4
 }
 
 //
@@ -121,7 +161,23 @@ fn parse_no_op(asm addr, opcode u8) bool {
     return true
 }
 
-fn parse_intruction(asm addr, name addr, name_len usize) bool {
+// mov $N, %rax
+fn parse_mov(asm addr) bool {
+    if !accept_char(asm, '$') { return false }
+
+    imm u32 = parse_number(asm)
+    if imm == BAD_NUMBER { return false }
+
+    if !accept_char(asm, ',') || !accept_char(asm, '%') || !accept_word(asm, c"rax") { return false }
+    if !at_statement_end(asm) { return false }
+
+    emit_mov_rax(asm, imm)
+
+    return true
+}
+
+fn parse_intructions(asm addr, name addr, name_len usize) bool {
+    if text_eq(name, c"mov", name_len) || text_eq(name, c"movq",name_len) { return parse_mov(asm) }
     if text_eq(name, c"nop", name_len) { return parse_no_op(asm, 0x90) }
     if text_eq(name, c"ret", name_len) { return parse_no_op(asm, 0xC3) }
 
@@ -141,7 +197,7 @@ fn assemble(asm addr) bool {
         name_len usize = a.token.len
         next_token(&a.lexer, &a.token)
 
-        if !parse_intruction(asm, name, name_len) { return false }
+        if !parse_intructions(asm, name, name_len) { return false }
     }
 
     return true
