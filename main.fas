@@ -16,6 +16,13 @@ struct Token {
     line u32
 }
 
+struct Symbol {
+    name addr
+    name_len usize
+    offset usize
+    defined bool
+}
+
 struct Lexer {
     current addr
     end addr
@@ -26,8 +33,13 @@ struct Lexer {
 struct Assembler {
     lexer Lexer
     token Token
+
     code addr
     code_len usize
+
+    symbols addr
+    symbol_count usize
+
     intel_syntax bool
 }
 
@@ -154,8 +166,39 @@ fn emit_mov_rax(asm addr, imm u32) void {
 }
 
 //
+// symbols
+//
+
+// find symbol by name or ad as not defined
+fn lookup_symbol(asm addr, name addr, name_len usize) addr {
+    view a = asm[Assembler]
+
+    for i usize = 0; i < a.symbol_count; i += 1 {
+        symbol addr = a.symbols + i * sizeof[Symbol]
+        if symbol[Symbol].name_len == name_len && same_bytes(symbol[Symbol].name, name, name_len) { return symbol }
+    }
+
+    slot addr = asm[Assembler].symbols + asm[Assembler].symbol_count * sizeof[Symbol]
+    slot[Symbol].name = name
+    slot[Symbol].name_len = name_len
+    asm[Assembler].symbols += 1
+    return slot
+}
+
+//
 // statements
 //
+
+fn define_label(asm addr, name addr, name_len usize) bool {
+    symbol addr = lookup_symbol(asm, name, name_len)
+
+    if symbol[Symbol].defined { return false }
+    symbol[Symbol].defined = true
+    symbol[Symbol].offset = asm[Assembler].code_len
+
+    return true
+}
+
 fn parse_no_op(asm addr, opcode u8) bool {
     if !at_statement_end(asm) { return false }
     emit_byte(asm, opcode)
@@ -212,6 +255,11 @@ fn assemble(asm addr) bool {
         name_len usize = a.token.len
         next_token(&a.lexer, &a.token)
 
+        if accept_char(asm, ':') {
+            if !define_label(asm, name, name_len) { return false }
+            continue
+        }
+
         if !parse_intructions(asm, name, name_len) { return false }
     }
 
@@ -239,11 +287,17 @@ fn main(argc i32, argv addr) i32 {
     if code == null { return -1 }
     defer { free(code, code_size) }
 
+    symbols_size usize = (file.len / 2 + 1) * sizeof[Symbol]
+    symbols addr = alloc(symbols_size)
+    if symbols == null { return -1 }
+    defer { free(symbols, symbols_size) }
+
     asm Assembler = {}
     asm.lexer.current = file.data
     asm.lexer.end = file.data + file.len
     asm.lexer.line = 1
     asm.code = code
+    asm.symbols = symbols
 
     if !assemble(&asm) {
         write_str(2, c"line ")
