@@ -188,7 +188,7 @@ fn lookup_symbol(asm addr, name addr, name_len usize) addr {
     slot addr = asm[Assembler].symbols + asm[Assembler].symbol_count * sizeof[Symbol]
     slot[Symbol].name = name
     slot[Symbol].name_len = name_len
-    asm[Assembler].symbols += 1
+    asm[Assembler].symbol_count += 1
     return slot
 }
 
