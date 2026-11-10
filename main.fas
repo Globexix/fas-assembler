@@ -165,6 +165,13 @@ fn emit_mov_rax(asm addr, imm u32) void {
     asm[Assembler].code_len += 4
 }
 
+fn patch_rel32(asm addr, site usize, target usize) bool {
+    delta i64 = bitcast[i64](target - (site + 4))
+    if delta < -2147483648 || delta > 2147483647 { return false }
+    (asm[Assembler].code + site)[i32] = trunc[i32](delta)
+    return true
+}
+
 //
 // symbols
 //
@@ -197,6 +204,24 @@ fn define_label(asm addr, name addr, name_len usize) bool {
     symbol[Symbol].offset = asm[Assembler].code_len
 
     return true
+}
+
+fn parse_jmp(asm addr) bool {
+    view a = asm[Assembler]
+
+    if a.token.kind != TOK_IDENT { return false }
+
+    symbol addr = lookup_symbol(asm, a.token.start, a.token.len)
+    next_token(&a.lexer, &a.token)
+
+    if !at_statement_end(asm) { return false }
+    if !symbol[Symbol].defined { return false }
+
+    emit_byte(asm, 0xE9) // jmp rel32
+    site usize = a.code_len
+    a.code_len += 4
+
+    return patch_rel32(asm, site, symbol[Symbol].offset)
 }
 
 fn parse_no_op(asm addr, opcode u8) bool {
@@ -236,6 +261,7 @@ fn parse_intructions(asm addr, name addr, name_len usize) bool {
     if text_eq(name, c".intel_syntax", name_len) { return parse_syntax(asm, c"noprefix", true) }
     if text_eq(name, c".att_syntax", name_len) { return parse_syntax(asm, c"prefix", false) }
     if text_eq(name, c"mov", name_len) || text_eq(name, c"movq",name_len) { return parse_mov(asm) }
+    if text_eq(name, c"jmp", name_len) { return parse_jmp(asm) }
     if text_eq(name, c"nop", name_len) { return parse_no_op(asm, 0x90) }
     if text_eq(name, c"ret", name_len) { return parse_no_op(asm, 0xC3) }
 
