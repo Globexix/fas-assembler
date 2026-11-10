@@ -20,7 +20,13 @@ struct Symbol {
     name addr
     name_len usize
     offset usize
+    fixups addr // jumps waiting for this label
     defined bool
+}
+
+struct Fixup {
+    next addr
+    site usize
 }
 
 struct Lexer {
@@ -39,6 +45,10 @@ struct Assembler {
 
     symbols addr
     symbol_count usize
+    undefined_count usize
+
+    fixups addr
+    fixups_end addr
 
     intel_syntax bool
 }
@@ -189,6 +199,7 @@ fn lookup_symbol(asm addr, name addr, name_len usize) addr {
     slot[Symbol].name = name
     slot[Symbol].name_len = name_len
     asm[Assembler].symbol_count += 1
+    asm[Assembler].undefined_count += 1
     return slot
 }
 
@@ -198,10 +209,20 @@ fn lookup_symbol(asm addr, name addr, name_len usize) addr {
 
 fn define_label(asm addr, name addr, name_len usize) bool {
     symbol addr = lookup_symbol(asm, name, name_len)
+    view s = symbol[Symbol]
+    view a = asm[Assembler]
 
-    if symbol[Symbol].defined { return false }
-    symbol[Symbol].defined = true
-    symbol[Symbol].offset = asm[Assembler].code_len
+    if s.defined { return false }
+    s.defined = true
+    s.offset = a.code_len
+    a.undefined_count -= 1
+
+    // patch every jump waiting for this label
+    fixup addr = s.fixups
+    while fixup != null {
+         if !patch_rel32(asm, fixup[Fixup].site, s.offset) { return false }
+         fixup = fixup[Fixup].next
+    }
 
     return true
 }
@@ -215,13 +236,22 @@ fn parse_jmp(asm addr) bool {
     next_token(&a.lexer, &a.token)
 
     if !at_statement_end(asm) { return false }
-    if !symbol[Symbol].defined { return false }
 
     emit_byte(asm, 0xE9) // jmp rel32
     site usize = a.code_len
     a.code_len += 4
 
-    return patch_rel32(asm, site, symbol[Symbol].offset)
+    if symbol[Symbol].defined { return patch_rel32(asm, site, symbol[Symbol].offset) }
+
+    if a.fixups + sizeof[Fixup] > a.fixups_end { return false }
+    fixup addr = a.fixups
+
+    a.fixups += sizeof[Fixup]
+    fixup[Fixup].site = site
+    fixup[Fixup].next = symbol[Symbol].fixups
+    symbol[Symbol].fixups = fixup
+
+    return true
 }
 
 fn parse_no_op(asm addr, opcode u8) bool {
@@ -318,17 +348,37 @@ fn main(argc i32, argv addr) i32 {
     if symbols == null { return -1 }
     defer { free(symbols, symbols_size) }
 
+    // forward jmp needs at least 5 bytes "jmp x" so this many fixups always fit
+    fixups_size usize = (file.len / 5 + 1) * sizeof[Fixup]
+    fixups addr = alloc(fixups_size)
+    if fixups == null { return -1 }
+    defer { free(fixups, fixups_size) }
+
     asm Assembler = {}
     asm.lexer.current = file.data
     asm.lexer.end = file.data + file.len
     asm.lexer.line = 1
     asm.code = code
     asm.symbols = symbols
+    asm.fixups = fixups
+    asm.fixups_end = fixups + fixups_size
 
     if !assemble(&asm) {
         write_str(2, c"line ")
         write_u64(2, asm.token.line)
         write_str(2, c": unsupported syntax\n")
+        return -1
+    }
+
+    if asm.undefined_count != 0 {
+        for i usize = 0; i < asm.symbol_count; i += 1 {
+            symbol addr = asm.symbols + i * sizeof[Symbol]
+            if !symbol[Symbol].defined {
+                write_str(2, c"undefined label: ")
+                write_fd(2, symbol[Symbol].name, symbol[Symbol].name_len)
+                write_str(2, c"\n")
+            }
+        }
         return -1
     }
 
